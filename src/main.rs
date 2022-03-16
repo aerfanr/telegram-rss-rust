@@ -42,6 +42,7 @@ async fn get_news() -> Result<String, Box<dyn Error + Send + Sync>> {
     let sites = CONFIG.with(|config| config.sites.clone());
 
     let mut message = String::new();
+    let mut length = 0;
     for site in sites {
         let res = reqwest::get(site.url)
             .await?
@@ -49,19 +50,21 @@ async fn get_news() -> Result<String, Box<dyn Error + Send + Sync>> {
             .await?;
         let channel = rss::Channel::read_from(&res[..])?;
 
-        let mut i = 0;
         for item in channel.items {
-            if i >= 20 { break; } // Do not send more than 20 items
-                                  // Telegram has a message length limit
-                                  // TODO: make this more accurate
-            i += 1;
             match item.title {
                 None => (),
                 Some(title) => {
-                    message.push_str(&format!("<a href=\"{}\">{}</a>\n\n",
-                            item.link.or(Some(String::new())).unwrap(),
-                            title
-                    ))
+                    let item_text = format!("<a href=\"{}\">{}</a>\n\n",
+                        item.link.or(Some(String::new())).unwrap(),
+                        title
+                    );
+                    let item_length = item_text.chars().count();
+                    // Do not send more than 4096 chars. Telegram has a message
+                    // length limit.
+                    // Continue to check if there is another item that fits
+                    if length + item_length > 4096 { continue; }
+                    length += item_length;
+                    message.push_str(&item_text)
                 }
             }
         }
