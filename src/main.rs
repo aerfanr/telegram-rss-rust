@@ -18,7 +18,7 @@ struct Config {
     sites: Vec<Site>
 }
 
-#[derive(Deserialize, Debug)]
+#[derive(Deserialize, Debug, Clone)]
 struct Site {
     id: String,
     url: String
@@ -38,9 +38,36 @@ fn get_config() -> Result<Config, Box<dyn Error>> {
 }
 
 // Generate a news message
-fn get_news() -> String {
-    // TODO: Implement get_news
-    String::from("This is the news.")
+async fn get_news() -> Result<String, Box<dyn Error + Send + Sync>> {
+    let sites = CONFIG.with(|config| config.sites.clone());
+
+    let mut message = String::new();
+    for site in sites {
+        let res = reqwest::get(site.url)
+            .await?
+            .bytes()
+            .await?;
+        let channel = rss::Channel::read_from(&res[..])?;
+
+        let mut i = 0;
+        for item in channel.items {
+            if i >= 20 { break; } // Do not send more than 20 items
+                                  // Telegram has a message length limit
+                                  // TODO: make this more accurate
+            i += 1;
+            match item.title {
+                None => (),
+                Some(title) => {
+                    message.push_str(&format!("<a href=\"{}\">{}</a>\n\n",
+                            item.link.or(Some(String::new())).unwrap(),
+                            title
+                    ))
+                }
+            }
+        }
+    }
+
+    Ok(message)
 }
 
 //handle received commands
@@ -55,8 +82,9 @@ async fn answer(bot: AutoSend<Bot>, message: Message, command: Command)
             }
             Command::News => {
                 // Reply with news
-                bot.send_message(message.chat.id, get_news())
+                bot.send_message(message.chat.id, get_news().await?)
                     .reply_to_message_id(message.id)
+                    .parse_mode(teloxide::types::ParseMode::Html)
                     .await?
             }
         };
