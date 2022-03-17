@@ -4,6 +4,7 @@ use serde::Deserialize;
 use std::fs::File;
 use std::io::BufReader;
 use std::error::Error;
+use redis::RedisError;
 
 #[derive(BotCommand, Clone)]
 #[command(rename = "lowercase", description = "These commands are supported:")]
@@ -37,9 +38,26 @@ fn get_config() -> Result<Config, Box<dyn Error>> {
     Ok(serde_json::from_reader(reader)?)
 }
 
+// Check if an item exists in database
+fn check_item(title: String, db: &mut redis::Connection) -> bool {
+    // Query if this title exists in set 'items'
+    let score: Result<bool, RedisError> = redis::cmd("SISMEMBER")
+        .arg("items")
+        .arg(title)
+        .query(db);
+    match score {
+        Err(e) => {
+            log::error!("{}", e);
+            false // Do not send item if there is an error
+        },
+        Ok(s) => !s
+    }
+}
+
 // Generate a news message
 async fn get_news() -> Result<String, Box<dyn Error + Send + Sync>> {
     let sites = CONFIG.with(|config| config.sites.clone());
+    let mut db = redis::Client::open("redis://127.0.0.1/")?.get_connection()?;
 
     let mut message = String::new();
     let mut length = 0;
@@ -63,8 +81,13 @@ async fn get_news() -> Result<String, Box<dyn Error + Send + Sync>> {
                     // length limit.
                     // Continue to check if there is another item that fits
                     if length + item_length > 4096 { continue; }
-                    length += item_length;
-                    message.push_str(&item_text)
+                    if check_item(title.clone(), &mut db) {
+                        length += item_length;
+                        message.push_str(&item_text);
+                        // Add item title to set 'items'
+                        redis::cmd("SADD").arg("items").arg(title)
+                            .query(& mut db)?;
+                    }
                 }
             }
         }

@@ -14,3 +14,4 @@ reqwest = { version = "0.11", features = ["socks"] }
 serde = "1.0"
 serde_json = "1.0"
 rss = "2.0"
+redis = "0.21"
