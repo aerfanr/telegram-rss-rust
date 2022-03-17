@@ -4,5 +4,9 @@
 			"id": "dw-en-all",
 			"url": "https://rss.dw.com/rdf/rss-en-all"
 		}
-	]
+	],
+	"chats": [
+		108373247
+	],
+	"news_interval": 1800
 }

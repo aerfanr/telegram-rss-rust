@@ -1,3 +1,4 @@
+use tokio::time::{sleep, Duration};
 use teloxide::prelude2::*;
 use teloxide::utils::command::BotCommand;
 use serde::Deserialize;
@@ -16,7 +17,9 @@ enum Command {
 // Bot config structure
 #[derive(Deserialize, Debug)]
 struct Config {
-    sites: Vec<Site>
+    sites: Vec<Site>,
+    chats: Vec<teloxide::types::ChatId>,
+    news_interval: u64
 }
 
 #[derive(Deserialize, Debug, Clone)]
@@ -117,6 +120,34 @@ async fn answer(bot: AutoSend<Bot>, message: Message, command: Command)
         Ok(())
 }
 
+// Send news to chat list
+async fn send_news(bot: &AutoSend<Bot>)
+    -> Result<(), Box<dyn Error + Send + Sync>> {
+        let news = get_news().await?;
+        let chats = CONFIG.with(|config| config.chats.clone());
+        for chat in chats {
+            // TODO: send the message to first chat, then forward to others to
+            // prevent sending large payloads
+            bot.send_message(chat, &news)
+                .parse_mode(teloxide::types::ParseMode::Html)
+                .await?;
+        }
+        Ok(())
+}
+
+// Send updates automatically
+async fn news_loop() {
+    let bot = Bot::from_env().auto_send();
+    let interval = CONFIG.with(|config| config.news_interval);
+    loop {
+        match send_news(&bot).await {
+            Err(e) => log::error!("{}", e),
+            Ok(r) => r
+        }
+        sleep(Duration::from_secs(interval)).await;
+    }
+}
+
 #[tokio::main]
 async fn main() {
     teloxide::enable_logging!();
@@ -129,5 +160,7 @@ async fn main() {
 
     let bot = Bot::from_env().auto_send();
 
-    teloxide::repls2::commands_repl(bot, answer, Command::ty()).await;
+    let repl = teloxide::repls2::commands_repl(bot, answer, Command::ty());
+
+    tokio::join!(repl, news_loop());
 }
