@@ -18,10 +18,8 @@ jobs:
     - uses: actions/checkout@v2
     - name: Build
       run: cargo build --release --verbose
-    - name: Run tests
-      run: cargo test --verbose
     - name: Upload artifact
       uses: actions/upload-artifact@v2
       with:
         name: telegram-rss-rust
-        path: target/release/
+        path: target/release/telegram-rss-rust
