@@ -60,16 +60,19 @@ fn check_item(title: String, db: &mut redis::Connection) -> bool {
 // Generate a news message
 async fn get_news() -> Result<String, Box<dyn Error + Send + Sync>> {
     let sites = CONFIG.with(|config| config.sites.clone());
+    log::debug!("Trying to connect to database...");
     let mut db = redis::Client::open("redis://127.0.0.1/")?.get_connection()?;
 
     let mut message = String::new();
     let mut length = 0;
     for site in sites {
+        log::debug!("Getting news from {}", site.url);
         let res = reqwest::get(site.url)
             .await?
             .bytes()
             .await?;
         let channel = rss::Channel::read_from(&res[..])?;
+        log::debug!("Recieved {} items.", channel.items.len());
 
         for item in channel.items {
             match item.title {
@@ -85,11 +88,14 @@ async fn get_news() -> Result<String, Box<dyn Error + Send + Sync>> {
                     // Continue to check if there is another item that fits
                     if length + item_length > 4096 { continue; }
                     if check_item(title.clone(), &mut db) {
+                        log::debug!("New item: {}", title);
                         length += item_length;
                         message.push_str(&item_text);
                         // Add item title to set 'items'
                         redis::cmd("SADD").arg("items").arg(title)
                             .query(& mut db)?;
+                    } else {
+                        log::trace!("Old item: {}", title);
                     }
                 }
             }
@@ -150,7 +156,7 @@ async fn news_loop() {
 
 #[tokio::main]
 async fn main() {
-    teloxide::enable_logging!();
+    pretty_env_logger::init();
     log::info!("Starting...");
 
     // log bot config
@@ -159,8 +165,9 @@ async fn main() {
     });
 
     let bot = Bot::from_env().auto_send();
-
+    log::debug!("Starting dispatcher...");
     let repl = teloxide::repls2::commands_repl(bot, answer, Command::ty());
 
+    log::debug!("Starting news loop...");
     tokio::join!(repl, news_loop());
 }
