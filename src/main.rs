@@ -28,6 +28,11 @@ struct Site {
     url: String
 }
 
+struct News {
+    message: String,
+    titles: Vec<String>
+}
+
 // Read the config and store in CONFIG for global access
 thread_local!(static CONFIG: Config = match get_config() {
     Ok(c) => c,
@@ -57,17 +62,46 @@ fn check_item(title: String, db: &mut redis::Connection) -> bool {
     }
 }
 
-// Generate a news message
-async fn get_news() -> Result<String, Box<dyn Error + Send + Sync>> {
+// Add a list of titles to database
+fn db_add_items(titles: Vec<String>)
+    -> Result<(), Box<dyn Error + Send + Sync>> {
+    log::debug!("Trying to connect to database...");
+    let mut db = redis::Client::open("redis://127.0.0.1/")?
+        .get_connection()?;
+    for title in titles {
+        // Add item title to set 'items'
+        redis::cmd("SADD").arg("items").arg(title)
+            .query(& mut db)?;
+    }
+    log::debug!("Added items to database.");
+    Ok(())
+}
+
+// Try sending get request, retry if failed
+async fn try_get(url: &str)
+    -> reqwest::Result<reqwest::Response> {
+        let max_tries = 4; //TODO: implement a config option for this
+        for _i in 0..max_tries {
+            match reqwest::get(url).await {
+                Ok(r) => return Ok(r),
+                Err(_e) => ()
+            }
+        }
+        reqwest::get(url).await
+}
+
+// Get news and generate message text and news title list
+async fn get_news() -> Result<News, Box<dyn Error + Send + Sync>> {
     let sites = CONFIG.with(|config| config.sites.clone());
     log::debug!("Trying to connect to database...");
     let mut db = redis::Client::open("redis://127.0.0.1/")?.get_connection()?;
 
     let mut message = String::new();
+    let mut result_items: Vec<String> = Vec::new();
     let mut length = 0;
     for site in sites {
         log::debug!("Getting news from {}", site.url);
-        let res = reqwest::get(site.url)
+        let res = try_get(&site.url)
             .await?
             .bytes()
             .await?;
@@ -76,7 +110,7 @@ async fn get_news() -> Result<String, Box<dyn Error + Send + Sync>> {
 
         for item in channel.items {
             match item.title {
-                None => (),
+                None => log::warn!("Found an item with empty title"),
                 Some(title) => {
                     let item_text = format!("<a href=\"{}\">{}</a>\n\n",
                         item.link.or(Some(String::new())).unwrap(),
@@ -91,9 +125,7 @@ async fn get_news() -> Result<String, Box<dyn Error + Send + Sync>> {
                         log::debug!("New item: {}", title);
                         length += item_length;
                         message.push_str(&item_text);
-                        // Add item title to set 'items'
-                        redis::cmd("SADD").arg("items").arg(title)
-                            .query(& mut db)?;
+                        result_items.push(title.clone());
                     } else {
                         log::trace!("Old item: {}", title);
                     }
@@ -102,7 +134,10 @@ async fn get_news() -> Result<String, Box<dyn Error + Send + Sync>> {
         }
     }
 
-    Ok(message)
+    Ok(News {
+        message: message,
+        titles: result_items
+    })
 }
 
 //handle received commands
@@ -113,14 +148,18 @@ async fn answer(bot: AutoSend<Bot>, message: Message, command: Command)
                 // Reply with command descriptions
                 bot.send_message(message.chat.id, Command::descriptions())
                     .reply_to_message_id(message.id)
-                    .await?
+                    .await?;
             }
             Command::News => {
+                let news = get_news().await?;
                 // Reply with news
-                bot.send_message(message.chat.id, get_news().await?)
+                bot.send_message(message.chat.id, news.message)
                     .reply_to_message_id(message.id)
                     .parse_mode(teloxide::types::ParseMode::Html)
-                    .await?
+                    .await?;
+                // Add titles to database; This should not happen in case of a
+                // telegram error.
+                db_add_items(news.titles)?
             }
         };
         Ok(())
@@ -134,10 +173,11 @@ async fn send_news(bot: &AutoSend<Bot>)
         for chat in chats {
             // TODO: send the message to first chat, then forward to others to
             // prevent sending large payloads
-            bot.send_message(chat, &news)
+            bot.send_message(chat, &news.message)
                 .parse_mode(teloxide::types::ParseMode::Html)
                 .await?;
         }
+        db_add_items(news.titles)?;
         Ok(())
 }
 
