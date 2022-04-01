@@ -22,15 +22,26 @@ struct Config {
     news_interval: u64
 }
 
+fn default_expire_delay() -> i32 {
+    604800
+}
+
 #[derive(Deserialize, Debug, Clone)]
 struct Site {
     id: String,
-    url: String
+    url: String,
+    #[serde(default = "default_expire_delay")]
+    expire_delay: i32
+}
+
+struct NewsItem {
+    expire_delay: i32,
+    title: String
 }
 
 struct News {
     message: String,
-    titles: Vec<String>
+    items: Vec<NewsItem>
 }
 
 // Read the config and store in CONFIG for global access
@@ -48,8 +59,9 @@ fn get_config() -> Result<Config, Box<dyn Error>> {
 
 // Check if an item exists in database
 fn check_item(title: String, db: &mut redis::Connection) -> bool {
-    // Query if this title exists in set 'items'
-    let score: Result<bool, RedisError> = redis::cmd("SISMEMBER")
+    // Query for the score of item.
+    // If it was 'nil' return true, else return false
+    let score: Result<Option<u64>, RedisError> = redis::cmd("ZSCORE")
         .arg("items")
         .arg(title)
         .query(db);
@@ -58,19 +70,33 @@ fn check_item(title: String, db: &mut redis::Connection) -> bool {
             log::error!("{}", e);
             false // Do not send item if there is an error
         },
-        Ok(s) => !s
+        Ok(s) => {
+            match s {
+                Some(_) => false,
+                None => true
+            }
+        }
     }
 }
 
-// Add a list of titles to database
-fn db_add_items(titles: Vec<String>)
+// Add a list of items to database
+fn db_add_items(items: Vec<NewsItem>)
     -> Result<(), Box<dyn Error + Send + Sync>> {
     log::debug!("Trying to connect to database...");
     let mut db = redis::Client::open("redis://127.0.0.1/")?
         .get_connection()?;
-    for title in titles {
-        // Add item title to set 'items'
-        redis::cmd("SADD").arg("items").arg(title)
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)?
+        .as_secs();
+    for item in items {
+        let expire_time;
+        if item.expire_delay < 0 {
+            expire_time = u64::MAX;
+        } else {
+            expire_time = now + item.expire_delay as u64;
+        }
+        // Add item title to sorted set 'items' with expire_time as score
+        redis::cmd("ZADD").arg("items").arg(expire_time).arg(item.title)
             .query(& mut db)?;
     }
     log::debug!("Added items to database.");
@@ -97,7 +123,7 @@ async fn get_news() -> Result<News, Box<dyn Error + Send + Sync>> {
     let mut db = redis::Client::open("redis://127.0.0.1/")?.get_connection()?;
 
     let mut message = String::new();
-    let mut result_items: Vec<String> = Vec::new();
+    let mut result_items: Vec<NewsItem> = Vec::new();
     let mut length = 0;
     for site in sites {
         log::debug!("Getting news from {}", site.url);
@@ -125,7 +151,10 @@ async fn get_news() -> Result<News, Box<dyn Error + Send + Sync>> {
                         log::debug!("New item: {}", title);
                         length += item_length;
                         message.push_str(&item_text);
-                        result_items.push(title.clone());
+                        result_items.push(NewsItem {
+                            title: title.clone(),
+                            expire_delay: site.expire_delay
+                        });
                     } else {
                         log::trace!("Old item: {}", title);
                     }
@@ -136,7 +165,7 @@ async fn get_news() -> Result<News, Box<dyn Error + Send + Sync>> {
 
     Ok(News {
         message: message,
-        titles: result_items
+        items: result_items
     })
 }
 
@@ -159,7 +188,7 @@ async fn answer(bot: AutoSend<Bot>, message: Message, command: Command)
                     .await?;
                 // Add titles to database; This should not happen in case of a
                 // telegram error.
-                db_add_items(news.titles)?
+                db_add_items(news.items)?
             }
         };
         Ok(())
@@ -177,7 +206,7 @@ async fn send_news(bot: &AutoSend<Bot>)
                 .parse_mode(teloxide::types::ParseMode::Html)
                 .await?;
         }
-        db_add_items(news.titles)?;
+        db_add_items(news.items)?;
         Ok(())
 }
 
