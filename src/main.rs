@@ -11,7 +11,8 @@ use redis::RedisError;
 #[command(rename = "lowercase", description = "These commands are supported:")]
 enum Command {
     Help,
-    News
+    News,
+    Info
 }
 
 // Bot config structure
@@ -190,6 +191,12 @@ async fn answer(bot: AutoSend<Bot>, message: Message, command: Command)
                 // telegram error.
                 db_add_items(news.items)?
             }
+            Command::Info => {
+                bot.send_message(message.chat.id, format!("Rust telegram RSS bot
+                    \nVersion: Commit {}", env!("GIT_HASH")))
+                    .reply_to_message_id(message.id)
+                    .await?;
+            }
         };
         Ok(())
 }
@@ -226,7 +233,7 @@ async fn news_loop() {
 #[tokio::main]
 async fn main() {
     pretty_env_logger::init();
-    log::info!("Starting...");
+    log::info!("Starting... version: Commit {}", env!("GIT_HASH"));
 
     // log bot config
     CONFIG.with(|config| {
