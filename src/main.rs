@@ -11,7 +11,6 @@ use redis::RedisError;
 #[command(rename = "lowercase", description = "These commands are supported:")]
 enum Command {
     Help,
-    News,
     Info
 }
 
@@ -179,17 +178,6 @@ async fn answer(bot: AutoSend<Bot>, message: Message, command: Command)
                 bot.send_message(message.chat.id, Command::descriptions())
                     .reply_to_message_id(message.id)
                     .await?;
-            }
-            Command::News => {
-                let news = get_news().await?;
-                // Reply with news
-                bot.send_message(message.chat.id, news.message)
-                    .reply_to_message_id(message.id)
-                    .parse_mode(teloxide::types::ParseMode::Html)
-                    .await?;
-                // Add titles to database; This should not happen in case of a
-                // telegram error.
-                db_add_items(news.items)?
             }
             Command::Info => {
                 bot.send_message(message.chat.id, format!("Rust telegram RSS bot
