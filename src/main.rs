@@ -18,8 +18,7 @@ enum Command {
 #[derive(Deserialize, Debug)]
 struct Config {
     sites: Vec<Site>,
-    chats: Vec<teloxide::types::ChatId>,
-    news_interval: u64
+    news_interval: u64,
 }
 
 fn default_expire_delay() -> i32 {
@@ -31,17 +30,13 @@ struct Site {
     id: String,
     url: String,
     #[serde(default = "default_expire_delay")]
-    expire_delay: i32
-}
-
-struct NewsItem {
     expire_delay: i32,
-    title: String
+    chats: Vec<teloxide::types::ChatId>,
 }
 
 struct News {
     message: String,
-    items: Vec<NewsItem>
+    items: Vec<String>,
 }
 
 // Read the config and store in CONFIG for global access
@@ -80,24 +75,27 @@ fn check_item(title: String, db: &mut redis::Connection) -> bool {
 }
 
 // Add a list of items to database
-fn db_add_items(items: Vec<NewsItem>)
-    -> Result<(), Box<dyn Error + Send + Sync>> {
+fn db_add_items(items: Vec<String>, expire_delay: i32) 
+-> Result<(), Box<dyn Error + Send + Sync>> {
     log::debug!("Trying to connect to database...");
     let mut db = redis::Client::open("redis://127.0.0.1/")?
-        .get_connection()?;
+    .get_connection()?;
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)?
         .as_secs();
     for item in items {
         let expire_time;
-        if item.expire_delay < 0 {
+        if expire_delay < 0 {
             expire_time = u64::MAX;
         } else {
-            expire_time = now + item.expire_delay as u64;
+            expire_time = now + expire_delay as u64;
         }
         // Add item title to sorted set 'items' with expire_time as score
-        redis::cmd("ZADD").arg("items").arg(expire_time).arg(item.title)
-            .query(& mut db)?;
+        redis::cmd("ZADD")
+            .arg("items")
+            .arg(expire_time)
+            .arg(item)
+            .query(&mut db)?;
     }
     log::debug!("Added items to database.");
     Ok(())
@@ -106,58 +104,50 @@ fn db_add_items(items: Vec<NewsItem>)
 // Try sending get request, retry if failed
 async fn try_get(url: &str)
     -> reqwest::Result<reqwest::Response> {
-        let max_tries = 4; //TODO: implement a config option for this
-        for _i in 0..max_tries {
-            match reqwest::get(url).await {
-                Ok(r) => return Ok(r),
-                Err(_e) => ()
-            }
+    let max_tries = 4; //TODO: implement a config option for this
+    for _i in 0..max_tries {
+        match reqwest::get(url).await {
+            Ok(r) => return Ok(r),
+            Err(_e) => ()
         }
-        reqwest::get(url).await
+    }
+    reqwest::get(url).await
 }
 
 // Get news and generate message text and news title list
-async fn get_news() -> Result<News, Box<dyn Error + Send + Sync>> {
-    let sites = CONFIG.with(|config| config.sites.clone());
+async fn get_news(url: &str) -> Result<News, Box<dyn Error + Send + Sync>> {
     log::debug!("Trying to connect to database...");
     let mut db = redis::Client::open("redis://127.0.0.1/")?.get_connection()?;
 
     let mut message = String::new();
-    let mut result_items: Vec<NewsItem> = Vec::new();
+    let mut result_items: Vec<String> = Vec::new();
     let mut length = 0;
-    for site in sites {
-        log::debug!("Getting news from {}", site.url);
-        let res = try_get(&site.url)
-            .await?
-            .bytes()
-            .await?;
-        let channel = rss::Channel::read_from(&res[..])?;
-        log::debug!("Recieved {} items.", channel.items.len());
 
-        for item in channel.items {
-            match item.title {
-                None => log::warn!("Found an item with empty title"),
-                Some(title) => {
-                    let item_text = format!("<a href=\"{}\">{}</a>\n\n",
-                        item.link.or(Some(String::new())).unwrap(),
-                        title
-                    );
-                    let item_length = item_text.chars().count();
-                    // Do not send more than 4096 chars. Telegram has a message
-                    // length limit.
-                    // Continue to check if there is another item that fits
-                    if length + item_length > 4096 { continue; }
-                    if check_item(title.clone(), &mut db) {
-                        log::debug!("New item: {}", title);
-                        length += item_length;
-                        message.push_str(&item_text);
-                        result_items.push(NewsItem {
-                            title: title.clone(),
-                            expire_delay: site.expire_delay
-                        });
-                    } else {
-                        log::trace!("Old item: {}", title);
-                    }
+    log::debug!("Getting news from {}", url);
+    let res = try_get(url).await?.bytes().await?;
+    let channel = rss::Channel::read_from(&res[..])?;
+    log::debug!("Recieved {} items.", channel.items.len());
+
+    for item in channel.items {
+        match item.title {
+            None => log::warn!("Found an item with empty title"),
+            Some(title) => {
+                let item_text = format!("<a href=\"{}\">{}</a>\n\n",
+                    item.link.or(Some(String::new())).unwrap(),
+                    title
+                );
+                let item_length = item_text.chars().count();
+                // Do not send more than 4096 chars. Telegram has a message
+                // length limit.
+                // Continue to check if there is another item that fits
+                if length + item_length > 4096 { continue; }
+                if check_item(title.clone(), &mut db) {
+                    log::debug!("New item: {}", title);
+                    length += item_length;
+                    message.push_str(&item_text);
+                    result_items.push(title);
+                } else {
+                    log::trace!("Old item: {}", title);
                 }
             }
         }
@@ -190,19 +180,20 @@ async fn answer(bot: AutoSend<Bot>, message: Message, command: Command)
 }
 
 // Send news to chat list
-async fn send_news(bot: &AutoSend<Bot>)
-    -> Result<(), Box<dyn Error + Send + Sync>> {
-        let news = get_news().await?;
-        let chats = CONFIG.with(|config| config.chats.clone());
-        for chat in chats {
+async fn send_news(bot: &AutoSend<Bot>) -> Result<(), Box<dyn Error + Send + Sync>> {
+    let sites = CONFIG.with(|config| config.sites.clone());
+    for site in sites {
+        let news = get_news(&site.url).await?;
+        for chat in site.chats {
             // TODO: send the message to first chat, then forward to others to
             // prevent sending large payloads
             bot.send_message(chat, &news.message)
                 .parse_mode(teloxide::types::ParseMode::Html)
                 .await?;
         }
-        db_add_items(news.items)?;
-        Ok(())
+        db_add_items(news.items, site.expire_delay)?;
+    }
+    Ok(())
 }
 
 // Send updates automatically
