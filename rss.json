@@ -1,12 +1,21 @@
 {
 	"sites": [
-		{
-			"id": "dw-en-all",
-			"url": "https://rss.dw.com/rdf/rss-en-all"
-		}
+			{
+					"id": "phoronix",
+					"url": "https://www.phoronix.com/rss.php",
+					"expire_delay": 604800,
+					"chats": [
+							87163244,
+							-1002728551221
+					]
+			},
+			{
+					"id": "dw-en-all",
+					"url": "https://rss.dw.com/rdf/rss-en-all",
+					"chats": [
+							87163244
+					]
+			}
 	],
-	"chats": [
-		108373247
-	],
-	"news_interval": 1800
+	"news_interval": 3600
 }
