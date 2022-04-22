@@ -14,15 +14,19 @@ enum Command {
     Info
 }
 
+fn default_db_host() -> String { String::from("localhost") }
+fn default_db_port() -> u16 { 6379 }
+fn default_expire_delay() -> i32 { 604800 }
+
 // Bot config structure
 #[derive(Deserialize, Debug)]
 struct Config {
     sites: Vec<Site>,
     news_interval: u64,
-}
-
-fn default_expire_delay() -> i32 {
-    604800
+    #[serde(default = "default_db_host")]
+    db_host: String,
+    #[serde(default = "default_db_port")]
+    db_port: u16
 }
 
 #[derive(Deserialize, Debug, Clone)]
@@ -77,9 +81,13 @@ fn check_item(title: String, db: &mut redis::Connection) -> bool {
 // Add a list of items to database
 fn db_add_items(items: Vec<String>, expire_delay: i32) 
 -> Result<(), Box<dyn Error + Send + Sync>> {
+    let db_host = CONFIG.with(|config| config.db_host.clone());
+    let db_port = CONFIG.with(|config| config.db_port.clone());
+
     log::debug!("Trying to connect to database...");
-    let mut db = redis::Client::open("redis://127.0.0.1/")?
-    .get_connection()?;
+    let mut db = redis::Client::open(
+        format!("redis://{}:{}", db_host, db_port)
+    )?.get_connection()?;
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)?
         .as_secs();
@@ -116,8 +124,13 @@ async fn try_get(url: &str)
 
 // Get news and generate message text and news title list
 async fn get_news(url: &str) -> Result<News, Box<dyn Error + Send + Sync>> {
+    let db_host = CONFIG.with(|config| config.db_host.clone());
+    let db_port = CONFIG.with(|config| config.db_port.clone());
+
     log::debug!("Trying to connect to database...");
-    let mut db = redis::Client::open("redis://127.0.0.1/")?.get_connection()?;
+    let mut db = redis::Client::open(
+        format!("redis://{}:{}", db_host, db_port)
+    )?.get_connection()?;
 
     let mut message = String::new();
     let mut result_items: Vec<String> = Vec::new();

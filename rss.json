@@ -17,5 +17,7 @@
 					]
 			}
 	],
-	"news_interval": 3600
+	"news_interval": 3600,
+	"db_host": "127.0.0.1",
+	"db_port": 6379
 }

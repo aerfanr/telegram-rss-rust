@@ -18,7 +18,7 @@ cargo build --release
 ## Usage
 1. Create the config file at `/opt/rss.json`. You can copy `rss.json` and change it.
 2. Set `TELOXIDE_TOKEN` environment variable to your Telegram bot token. You can get a bot token from the BotFather ([t.me/BotFather](t.me/BotFather))
-3. Set up a redis server listening on `redis://127.0.0.1:6379`
+3. Set up a redis server
 4. Run the program
 ```
 ./target/release/telegram-rss-rust
@@ -40,3 +40,7 @@ An array of all rss feeds. Each feed is a json object with following options:
 * chats: An array of numeric telegram chat ids to send the recieved feed items to
 ### news_interval
 Number of seconds to wait after getting feed updates.
+### db_host
+A string containing the database host. Default value is `"localhost"`.
+### db_port
+A number containing the database port. Defalt value is `6379`.
