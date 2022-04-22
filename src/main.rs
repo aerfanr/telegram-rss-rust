@@ -184,6 +184,10 @@ async fn send_news(bot: &AutoSend<Bot>) -> Result<(), Box<dyn Error + Send + Syn
     let sites = CONFIG.with(|config| config.sites.clone());
     for site in sites {
         let news = get_news(&site.url).await?;
+        // Do not try to send if news is empty
+        if news.items.len() == 0 {
+            continue;
+        }
         for chat in site.chats {
             // TODO: send the message to first chat, then forward to others to
             // prevent sending large payloads
