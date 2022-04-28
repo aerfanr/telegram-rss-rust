@@ -1,11 +1,11 @@
 use tokio::time::{sleep, Duration};
 use teloxide::prelude2::*;
 use teloxide::utils::command::BotCommand;
-use serde::Deserialize;
-use std::fs::File;
-use std::io::BufReader;
 use std::error::Error;
 use redis::RedisError;
+
+mod config;
+use config::Config;
 
 #[derive(BotCommand, Clone)]
 #[command(rename = "lowercase", description = "These commands are supported:")]
@@ -14,47 +14,16 @@ enum Command {
     Info
 }
 
-fn default_db_host() -> String { String::from("localhost") }
-fn default_db_port() -> u16 { 6379 }
-fn default_expire_delay() -> i32 { 604800 }
-
-// Bot config structure
-#[derive(Deserialize, Debug)]
-struct Config {
-    sites: Vec<Site>,
-    news_interval: u64,
-    #[serde(default = "default_db_host")]
-    db_host: String,
-    #[serde(default = "default_db_port")]
-    db_port: u16
-}
-
-#[derive(Deserialize, Debug, Clone)]
-struct Site {
-    id: String,
-    url: String,
-    #[serde(default = "default_expire_delay")]
-    expire_delay: i32,
-    chats: Vec<teloxide::types::ChatId>,
-}
-
 struct News {
     message: String,
     items: Vec<String>,
 }
 
 // Read the config and store in CONFIG for global access
-thread_local!(static CONFIG: Config = match get_config() {
+thread_local!(static CONFIG: Config = match config::get_config() {
     Ok(c) => c,
     Err(e) => panic!("{}", e)
 });
-
-// Read config from file
-fn get_config() -> Result<Config, Box<dyn Error>> {
-    let file = File::open("/opt/rss.json")?;
-    let reader = BufReader::new(file);
-    Ok(serde_json::from_reader(reader)?)
-}
 
 // Check if an item exists in database
 fn check_item(title: String, db: &mut redis::Connection) -> bool {
