@@ -2,6 +2,15 @@
 name = "telegram-rss-rust"
 version = "0.1.0"
 edition = "2021"
+default-run = "telegram-rss-rust"
+
+[[bin]]
+name = "telegram-rss-rust"
+path = "src/main.rs"
+
+[[bin]]
+name = "db-cleaner"
+path = "src/db-cleaner.rs"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
