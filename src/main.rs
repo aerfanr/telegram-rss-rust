@@ -1,13 +1,13 @@
 use tokio::time::{sleep, Duration};
-use teloxide::prelude2::*;
-use teloxide::utils::command::BotCommand;
+use teloxide::prelude::*;
+use teloxide::utils::command::BotCommands;
 use std::error::Error;
 use redis::RedisError;
 
 mod config;
 use config::Config;
 
-#[derive(BotCommand, Clone)]
+#[derive(BotCommands, Clone)]
 #[command(rename = "lowercase", description = "These commands are supported:")]
 enum Command {
     Help,
@@ -147,7 +147,8 @@ async fn answer(bot: AutoSend<Bot>, message: Message, command: Command)
         match command {
             Command::Help => {
                 // Reply with command descriptions
-                bot.send_message(message.chat.id, Command::descriptions())
+                bot.send_message(message.chat.id, 
+                    format!("{}", Command::descriptions()))
                     .reply_to_message_id(message.id)
                     .await?;
             }
@@ -207,7 +208,7 @@ async fn main() {
 
     let bot = Bot::from_env().auto_send();
     log::debug!("Starting dispatcher...");
-    let repl = teloxide::repls2::commands_repl(bot, answer, Command::ty());
+    let repl = teloxide::commands_repl(bot, answer, Command::ty());
 
     log::debug!("Starting news loop...");
     tokio::join!(repl, news_loop());
