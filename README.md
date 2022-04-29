@@ -16,7 +16,7 @@ cargo build --release
 ```
 
 ## Usage
-1. Create the config file at `/opt/rss.json`. You can copy `rss.json` and change it.
+1. Create the config file at `/opt/rss.yaml`. You can copy `rss.yaml` and change it.
 2. Set `TELOXIDE_TOKEN` environment variable to your Telegram bot token. You can get a bot token from the BotFather ([t.me/BotFather](t.me/BotFather))
 3. Set up a redis server
 4. Run the program
@@ -29,10 +29,10 @@ or
 ```
 
 ## Configuration
-There is an example config file at `rss.json` you can copy and modify it.
+There is an example config file at `rss.yaml` you can copy and modify it.
 Here are all the config options:
 ### sites
-An array of all rss feeds. Each feed is a json object with following options:
+An array of all rss feeds. Each feed is a yaml object with following options:
 
 * id: An arbitrary name for the feed. This has no purpose at the moment.
 * url: Feed url

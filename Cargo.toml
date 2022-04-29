@@ -24,6 +24,6 @@ pretty_env_logger = "0.4.0"
 tokio = { version =  "1.8", features = ["rt-multi-thread", "macros"] }
 reqwest = { version = "0.11", features = ["socks"] }
 serde = "1.0"
-serde_json = "1.0"
+serde_yaml = "0.8"
 rss = "2.0"
 redis = "0.21"

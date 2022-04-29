@@ -29,7 +29,7 @@ pub struct Site {
 
 // Read config from file
 pub fn get_config() -> Result<Config, Box<dyn Error>> {
-    let file = File::open("/opt/rss.json")?;
+    let file = File::open("/opt/rss.yaml")?;
     let reader = BufReader::new(file);
-    Ok(serde_json::from_reader(reader)?)
+    Ok(serde_yaml::from_reader(reader)?)
 }
